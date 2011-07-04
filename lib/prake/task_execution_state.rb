@@ -78,8 +78,7 @@ module Rake
     end
 
     def add_execution_state_listener(l)
-      listener = execution_state_listener()
-      listener << l
+      execution_state_listener() << l
     end
 
     def remote_execution_state_listener(l)

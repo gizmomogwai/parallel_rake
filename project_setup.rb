@@ -18,7 +18,7 @@ l = Listener.new
 #  t.add_execution_state_listener(l)
 end
 
-task :tasks =>[:task1, :task2, :task3, :task4] do
+task :tasks => [:task1, :task2, :task3, :task4] do
   #  sh 'gibts nicht'
 end
 
@@ -39,12 +39,8 @@ file "project/main.exe" => ['project/main.o', 'project/lib.o', 'project/base.o']
   sh "g++ -o #{t.name} #{t.prerequisites.join(' ')}"
 end
 
-file "test.c" do
-  sh './gen.sh'
-end
-file "test.h" do
+file ['test.c', 'test.h'] do
   sh './gen.sh'
 end
 
-task :gen_test => ['test.c', 'test.h'] do
-end
+task :gen_test => ['test.c', 'test.h']
