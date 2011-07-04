@@ -12,3 +12,22 @@ task :clean do
 end
 
 task :default => [:tasks, :gen_test, 'project/main.exe']
+
+
+desc 'namespace bla'
+namespace :bla do
+
+  desc "bla"
+  task :bla do
+  	puts 'bla'
+  end
+end
+
+desc "namespace spec"
+namespace :spec do
+
+  desc "spec"
+  task :spec do
+  	puts 'spec'
+  end
+end
