@@ -2,6 +2,10 @@ require 'rake'
 
 module Rake
 
+  # idle
+  # execution_finished
+  # ok
+  # exceptions
   class ExecutionState
     def initialize(idle, execution_finished, ok, e=nil)
       @idle = idle
@@ -12,6 +16,10 @@ module Rake
     def self.idle
       ExecutionState.new(true, false, false)
     end
+    def self.invoked
+      ExecutionState.new(false, false, false)
+    end
+
     def self.not_needed
       ExecutionState.new(false, true, true)
     end
@@ -25,12 +33,7 @@ module Rake
     def self.failed_because_of_prereq
       ExecutionState.new(false, true, false)
     end
-    def self.enqueued
-      ExecutionState.new(false, false, false)
-    end
-    def self.invoked
-      ExecutionState.new(false, false, false)
-    end
+
     def idle?
       @idle
     end

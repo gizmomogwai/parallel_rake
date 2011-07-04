@@ -1,5 +1,5 @@
 #include <stdio.h>
 
 void base() {
-  printf("base\n");
+  printf("base\n")
 }

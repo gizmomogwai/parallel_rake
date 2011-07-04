@@ -1,21 +1,21 @@
 require 'rake'
 require 'prake/task_execution_state.rb'
 
+Thread.abort_on_exception = true
+
 class ThreadPool
   def initialize(nr_of_threads)
     @jobs = []
     @jobs.extend(MonitorMixin)
     @jobs_cond = @jobs.new_cond
 
-    @running = true
     @threads = []
     @exceptions = []
+    @exceptions.extend(MonitorMixin)
     nr_of_threads.times do |i|
       @threads << Thread.new(i) do
         Thread.current[:name] = "ThreadPoolThread#{i}"
-        while (@running)
-          sleep(1)
-          puts "still running #{i}"
+        while (true)
           j = get_next
           begin
             if j == :shutdown
@@ -24,7 +24,8 @@ class ThreadPool
               j.execute
             end
           rescue => e
-            @exceptions << e
+            puts "cought exception #{e}"
+            exception_happened(e)
           end
         end
         puts "leaving thread #{i}"
@@ -32,10 +33,16 @@ class ThreadPool
     end
   end
 
+  def exception_happened(e)
+    @exceptions.synchronize do
+      @exceptions << e
+    end
+  end
+
   def get_next
     @jobs.synchronize do
       res = @jobs.shift
-      if !res
+      while !res
         @jobs_cond.wait
         res = @jobs.shift
       end
@@ -51,6 +58,7 @@ class ThreadPool
   end
 
   def shutdown
+    puts 'sending shutdown'
     @threads.size.times do
       add_job(:shutdown)
     end
@@ -92,7 +100,9 @@ module Rake
 
     invoke_org = self.instance_method(:invoke)
     define_method(:invoke) do |*args|
-      add_execution_state_listener(InvokeSupervisor.new)
+      execution_state_mutex.synchronize do
+        add_execution_state_listener(InvokeSupervisor.new)
+      end
       Rake::application.thread_pool = ThreadPool.new(4)
       invoke_org.bind(self).call(*args)
       Rake::application.thread_pool.join
@@ -107,15 +117,15 @@ module Rake
         end
         invoke_prerequisites_and_execute(task_args, new_chain)
       end
-      #    rescue Exception => ex
-      #      add_chain_to(ex, new_chain)
-      #      raise ex
+    rescue Exception => ex
+      add_chain_to(ex, new_chain)
+      raise ex
     end
 
     def invoke_prerequisites_and_execute(task_args, invocation_chain)
       execution_state_mutex.synchronize do
         if execution_state.idle?
-          self.execution_state = ExecutionState.invoked
+          execution_state = ExecutionState.invoked
           if prerequisites.size == 0
             add_for_execution(task_args)
           else
@@ -136,18 +146,15 @@ module Rake
             }
           end
         end
-        # if not idle do nothing
       end
     end
 
-
+    attr_reader :prereq_count, :prereq_ok_count
     def init_prereq_counts
       @prereq_count = 0
       @prereq_ok_count = 0
       @prereq_mutex = Mutex.new
     end
-
-    attr_reader :prereq_count, :prereq_ok_count
 
     def inc_prereq_count
       @prereq_mutex.synchronize do
@@ -161,6 +168,7 @@ module Rake
       end
     end
 
+    # is called when the execution state of prerequisites changes
     def execution_state_changed(task, state)
       if !state.execution_finished?
         return
@@ -170,14 +178,14 @@ module Rake
       if state.ok?
         inc_prereq_ok_count
       end
-#      puts "i am #{name} and #{task.name} finished with #{state}\nprereq_count: #{prereq_count}\nprereq_ok_count: #{prereq_ok_count}\nprerequisites.size: #{prerequisites.size} - #{prerequisites.join(', ')}"
+      puts "i am #{name} and #{task.name} finished with #{state}\nprereq_count: #{prereq_count}\nprereq_ok_count: #{prereq_ok_count}\nprerequisites.size: #{prerequisites.size} - #{prerequisites.join(', ')}"
 
       if prereqs_finished?
         if prereqs_ok?
           add_for_execution(@task_args)
         else
           execution_state_mutex.synchronize do
-            self.execution_state = ExecutionState.failed_because_of_prereq
+            schedule_execution_state(ExecutionState.failed_because_of_prereq)
           end
         end
       end
@@ -191,7 +199,6 @@ module Rake
       prereq_ok_count() == prerequisites.size
     end
 
-
     class ExecuteJob
       def initialize(task, task_args)
         @task = task
@@ -201,21 +208,35 @@ module Rake
         @task.execute(@task_args)
       end
     end
+    class ExecutionStateJob
+      def initialize(task, state)
+        @task = task
+        @state = state
+      end
+      def execute
+        @task.execution_state_mutex.synchronize do
+          @task.execution_state = @state
+        end
+      end
+    end
 
     def add_for_execution(task_args)
       execution_state_mutex.synchronize do
         if needed?
-          self.execution_state = ExecutionState.enqueued
-          j = ExecuteJob.new(self, task_args)
-          Rake::application.thread_pool.add_job(j)
+          Rake::application.thread_pool.add_job(ExecuteJob.new(self, task_args))
         else
           self.execution_state = ExecutionState.not_needed
         end
       end
     end
-
+    def schedule_execution_state(state)
+      execution_state_mutex.synchronize do
+        Rake::application.thread_pool.add_job(ExecutionStateJob.new(self, state))
+      end
+    end
 
     execute_org = self.instance_method(:execute)
+
     define_method(:execute) do |arg|
       begin
         execute_org.bind(self).call(arg) if needed?
@@ -225,7 +246,6 @@ module Rake
         raise e
       end
     end
-
 
   end
 end

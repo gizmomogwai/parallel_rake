@@ -15,7 +15,7 @@ l = Listener.new
       raise "problem in task #{t.name}"
     end
   end
-  t.add_execution_state_listener(l)
+#  t.add_execution_state_listener(l)
 end
 
 task :tasks =>[:task1, :task2, :task3, :task4] do
@@ -37,4 +37,14 @@ end
 
 file "project/main.exe" => ['project/main.o', 'project/lib.o', 'project/base.o'] do |t|
   sh "g++ -o #{t.name} #{t.prerequisites.join(' ')}"
+end
+
+file "test.c" do
+  sh './gen.sh'
+end
+file "test.h" do
+  sh './gen.sh'
+end
+
+task :gen_test => ['test.c', 'test.h'] do
 end
