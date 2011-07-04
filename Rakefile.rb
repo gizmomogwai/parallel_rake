@@ -8,4 +8,7 @@ require 'project_setup.rb'
 task :clean do
   sh 'find project -name "*.o" -delete'
   sh 'find project -name "*.exe" -delete'
+  sh 'rm -f test.[c,h]'
 end
+
+task :default => [:tasks, :gen_test, 'project/main.exe']
