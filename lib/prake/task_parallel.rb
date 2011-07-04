@@ -1,16 +1,12 @@
 require 'rake'
 require 'prake/task_execution_state.rb'
 
-# TODO ... notify wait auf der jobqueue
-#class FinishJob
-#  def execute
-#    puts "shutting down #{Thread.current[:name]}"
-#  end
-#end
-
 class ThreadPool
   def initialize(nr_of_threads)
     @jobs = []
+    @jobs.extend(MonitorMixin)
+    @jobs_cond = @jobs.new_cond
+
     @running = true
     @threads = []
     @exceptions = []
@@ -20,9 +16,13 @@ class ThreadPool
         while (@running)
           sleep(1)
           puts "still running #{i}"
-          j = get_next_or_nil
+          j = get_next
           begin
-            j.execute if j
+            if j == :shutdown
+              break
+            else
+              j.execute
+            end
           rescue => e
             @exceptions << e
           end
@@ -32,35 +32,34 @@ class ThreadPool
     end
   end
 
-  def get_next_or_nil
-    mutex.synchronize do
-      @jobs.shift
+  def get_next
+    @jobs.synchronize do
+      res = @jobs.shift
+      if !res
+        @jobs_cond.wait
+        res = @jobs.shift
+      end
+      return res
     end
   end
 
   def add_job(j)
-    mutex.synchronize do
+    @jobs.synchronize do
       @jobs << j
+      @jobs_cond.signal
     end
   end
 
   def shutdown
-    @running = false
-#    @threads.size.times do
-#      add_job(FinishJob.new)
-#    end
-#    @running = false
-  end
-
-  def mutex
-    @mutex ||= Mutex.new
+    @threads.size.times do
+      add_job(:shutdown)
+    end
   end
 
   def join
     @threads.each do |t|
       t.join
     end
-    puts @jobs.join(', ')
     if @exceptions.size > 0
       puts "problems:"
       puts @exceptions.join("\n")
@@ -102,12 +101,12 @@ module Rake
 
     def invoke_with_call_chain(task_args, invocation_chain)
       new_chain = InvocationChain.append(self, invocation_chain)
-#      @lock.synchronize do
+      @lock.synchronize do
         if application.options.trace
           $stderr.puts "** Invoke #{name} #{format_trace_flags}"
         end
         invoke_prerequisites_and_execute(task_args, new_chain)
- #     end
+      end
       #    rescue Exception => ex
       #      add_chain_to(ex, new_chain)
       #      raise ex
